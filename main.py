@@ -21,7 +21,7 @@ app.add_middleware(
 
 @app.get("/")
 def home():
-    return {"status": "Server is running with FFmpeg!"}
+    return {"status": "Server is running with High-Quality 4K FFmpeg Engine!"}
 
 @app.post("/process-media/")
 async def process_media(
@@ -35,41 +35,47 @@ async def process_media(
         if not suffix:
             suffix = ".mp4"
 
-        # टेम्परेरी इनपुट फ़ाइल बनाएं
+        # इनपुट टेम्परेरी फ़ाइल
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
             content = await file.read()
             tmp_in.write(content)
             in_path = tmp_in.name
 
-        out_path = in_path + "_processed" + suffix
-
-        # रेजोल्यूशन सेटिंग्स (4K/1080p/Original)
-        vf_filter = ""
-        if resolution == "4k":
-            vf_filter = "scale=3840:2160:force_original_aspect_ratio=decrease,pad=3840:2160:(ow-iw)/2:(oh-ih)/2"
-        elif resolution == "1080":
-            vf_filter = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
-
+        out_path = in_path + "_4k_processed" + suffix
         is_video = suffix in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.3gp']
+
+        # उच्च गुणवत्ता वाली स्केलिंग + शार्पनिंग फ़िल्टर (बिना काली पट्टियों के)
+        filters = []
+        if resolution == "4k":
+            # Lanczos स्केलिंग + unsharp फ़िल्टर (4K क्लैरिटी के लिए)
+            filters.append("scale='if(gt(iw,ih),3840,-2)':'if(gt(iw,ih),-2,2160)':flags=lanczos")
+            filters.append("unsharp=5:5:1.5:5:5:0.0")
+        elif resolution == "1080":
+            filters.append("scale='if(gt(iw,ih),1920,-2)':'if(gt(iw,ih),-2,1080)':flags=lanczos")
+            filters.append("unsharp=3:3:1.0:3:3:0.0")
+
+        vf_str = ",".join(filters) if filters else ""
 
         cmd = ["ffmpeg", "-y", "-i", in_path]
 
         if is_video:
-            if vf_filter:
-                cmd.extend(["-vf", vf_filter])
+            if vf_str:
+                cmd.extend(["-vf", vf_str])
+            
             # क्वालिटी (CRF) कैलकुलेशन
             q_val = int(quality)
-            crf = int(35 - ((q_val - 40) * (35 - 18) / 58))
-            cmd.extend(["-c:v", "libx264", "-crf", str(crf), "-preset", "ultrafast", "-c:a", "copy", out_path])
+            crf = int(32 - ((q_val - 40) * (32 - 15) / 58))
+            cmd.extend(["-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-c:a", "copy", out_path])
         else:
-            if vf_filter:
-                cmd.extend(["-vf", vf_filter])
-            cmd.extend([out_path])
+            # फोटो के लिए (हाई-क्वालिटी आउटपुट + 4K स्केलिंग)
+            if vf_str:
+                cmd.extend(["-vf", vf_str])
+            cmd.extend(["-q:v", "2", out_path])
 
-        # FFmpeg कमांड चलाएं
+        # FFmpeg कमांड एग्जीक्यूट करें
         subprocess.run(cmd, check=True)
 
-        return FileResponse(out_path, filename=f"optimized_{file.filename}")
+        return FileResponse(out_path, filename=f"4K_optimized_{file.filename}")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
